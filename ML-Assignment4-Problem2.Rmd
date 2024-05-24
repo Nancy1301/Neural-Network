@@ -1,0 +1,393 @@
+---
+title: "ML- Assignment 4 Problem 2"
+output: html_notebook
+---
+
+
+Problem2— Predicting Bike Sharing Demand
+For this problem, you will be working with the bike sharing demand dataset from Kaggle: https://www.kaggle.com/competitions/bike-sharing-demand/data?select=train.csv . The dataset is comprised of hourly bike rental data spanning two years (2011-2012). The goal is to predict the totalcount of bike rentals based on features such as date, temperature, whether it is holiday, working day etc. This data is a time-series data because the observations are in a sequence and there is a temporal order between them. However for the sake of this assignment, let’s assume that the observations are
+independent and identically distributed (i.i.d). click on the link above and read the data description on Kaggle. Then download bike-data.csv file from canvas
+
+
+
+Let's first load the dataset.
+
+```{r}
+bike = read.csv("C:/Users/CSC/Downloads/bike.csv")
+bike
+```
+
+The Data Description from Kaggle:
+
+datetime - hourly date + timestamp  
+season -  1 = spring, 2 = summer, 3 = fall, 4 = winter 
+holiday - whether the day is considered a holiday
+workingday - whether the day is neither a weekend nor holiday
+weather - 1: Clear, Few clouds, Partly cloudy, Partly cloudy
+2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist
+3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds
+4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog 
+temp - temperature in Celsius
+atemp - "feels like" temperature in Celsius
+humidity - relative humidity
+windspeed - wind speed
+casual - number of non-registered user rentals initiated
+registered - number of registered user rentals initiated
+count - number of total rentals
+
+
+
+1. (2p) explore the overall structure of the dataset using the str() function. Get a summary statistics of each variable. Answer the following questions:
+o How many observations do you have in the data?
+o What is the type of each variable? Categorical ( nominal or ordinal) or continuous?
+o Is there any missing value?
+o Draw the histogram of count. Interpret what you see in the histogram
+
+```{r}
+# Let's explore the dataset: 
+obs = nrow(bike)
+print(paste("The number of observations are:",obs))
+str(bike)
+summary(bike)
+```
+According to the summary and dataset description:
+
+The categorical variables are:
+1. datetime
+2. season (because there are four diff season categories and in order; therefore it's an ordinal categorical feauture)
+3. holiday (As they have binary values for whether there is a holiday or not; no specific order therefore it's nominal)
+4. workingday (nominal)
+5. weather (there are four different types of weather categories provided without any order; therefore it's nominal)
+
+The continuous variables are:
+1. temp
+2. atemp
+3. humidity
+4. windspeed
+5. casual
+6. registered
+
+The target predicted value is:
+1. count
+
+
+```{r}
+na_values = sum(is.na(bike))
+print(paste("The null values are:", na_values))
+```
+We can see, there are no null values. Great !
+
+
+
+```{r}
+hist(bike$count,
+     col="lightblue",
+     main = "Histogram of the Count feauture",
+     xlab = "count",
+     ylab = "frequency")
+```
+The interpretation of this graph suggests that as the values keeps on increasing, thier count decreases. It's a right skewed data.
+
+Let's perform Feauture Engineering
+2. Remove the “registered” and “casual” variables. These are the count of registered and casual users and together they can perfectly predict “count” so we are removing them from the model and predict count from the other features.
+
+
+
+
+```{r}
+bike = subset(bike, select = -c(registered, casual))
+bike
+```
+3. (1p) The count variable is severely right-skewed. A skewed target variable can make a machine learning model biased. For instance, in this case lower counts are more frequent in the training data compared to higher counts . Therefore, a machine learning model trained on this data is less likely to successfully predict higher counts. There are different ways we can transform a right-skewed variable to a more bell-shape distribution. Common transformations for a right-skewed data includes log, square-root and cube-root transformations. We are going to use square root transformation here to make the distribution of count more bell-shaped. Set the count variable in your dataframe equal to square root of count and plot its distribution again.
+
+```{r}
+# Transforming the count variable through square root method to distribute it more bell-shaped.
+bike$count = sqrt(bike$count)
+hist(bike$count,
+     col="lightblue",
+     main = "Histogram of the Count feauture",
+     xlab = "count",
+     ylab = "frequency")
+```
+Now, this looks more bell-shaped.
+
+
+4. (2 pt) Variable datetime is not useful in its current form. Convert this variable to “day of month”, “year”, “day of week”, ”month” and “hour” variables. You can use as.POSIXlt function to extract those features from datetime. Please see this reference for an example.
+Remove the original datetime variable after conversion
+
+```{r}
+# Extracting from datetime variable and creating features like day_of_month, year, day_of_week, month, hour variables
+
+bike$datetime = as.POSIXlt(bike$datetime)
+
+bike$day_of_month = bike$datetime$mday
+bike$year = bike$datetime$year + 1900
+bike$day_of_week = bike$datetime$wday
+bike$month = bike$datetime$mon + 1
+bike$hour = bike$datetime$hour
+
+```
+
+```{r}
+# Let's remove the datetime variable after extracting
+
+bike = subset(bike, select = -c(datetime))
+bike
+```
+5. (3pt) Variables “month”, “day of week”, “hour”, and “season” are categorical but they are also circular. This means these variables are periodic in nature. If we represent a circular variable like “month” with numeric indices 0-11 we are implying that the distance between month 10 (November) and month 11 (December) is much lower than the distance between month 11(December) and month 0 (January) which is not correct. At the other hand if we one-hot-encode the “month” variable we are ignoring the chronological ordering between month values and assume that the distance between every two months is equal. A better way to represent these variables is to map each value into a point in a circle where the lowest value appears next to the largest value in the circle. For instance, we can transform the “month” variable by creating “x” and “y” coordinates of the point in such circle using sin and cosine transformations as follows:
+Convert variables “month”, “day of week”, “hour”, and “season” to their x and y coordinates using sin and cosine transformation as explained above. Make sure to remove the original “month”, “day of week”, “hour”, and “season” variables after transformation. Note: The “day of month” variable is also technically circular but this dataset only contains days 1-19 therefore we can just convert “day” variable to numeric indices using “as.numeric” function.
+
+
+```{r}
+summary(bike)
+# let's define the maximum values of these variable using the summary function beforehand:
+max_mon = 12
+max_day_of_week = 6
+max_hour = 23
+max_season = 4
+```
+
+```{r}
+# Converting month, day_of_week, hour, season into x and y coordinates:
+
+bike$x_month = cos(2 * pi * bike$month / max_mon)
+bike$y_month = sin(2 * pi * bike$month / max_mon)
+
+bike$x_day_of_week = cos(2 * pi * bike$day_of_week / max_day_of_week)
+bike$y_day_of_week = sin(2 * pi * bike$day_of_week / max_day_of_week)
+
+bike$x_hour = cos(2 * pi * bike$hour / max_hour)
+bike$y_hour = sin(2 * pi * bike$hour / max_hour)
+
+bike$x_season = cos(2 * pi * bike$season / max_season)
+bike$y_season = sin(2 * pi * bike$season / max_season)
+
+# Let's remove the old values
+
+bike = subset(bike, select = -c(month, day_of_week, hour, season))
+
+print(bike)
+
+```
+```{r}
+# Converting day_of_month to numeric
+
+bike$day_of_month = as.numeric(bike$day_of_month)
+print(bike)
+```
+6. (2pt) Neural networks do not accept categorical variables and we must encode the categorical variables before training the network. One-hot-encode all the categorical variables in your dataset. Note: binary variables such as “holiday” and “workingday” are already converted to 0-1 and don’t need to be one-hot-encoded.
+
+Categorical variables:
+1. season
+2. weather 
+
+```{r}
+# Let's check which all features are required to be one-hot encoded:
+summary(bike)
+```
+The "weather" feature is supposed to be one-hot encoded.
+
+```{r}
+#install.packages('data.table')
+install.packages("ggplot2")
+```
+
+```{r}
+library(caret)
+library(ggplot2)
+library(lattice)
+library(data.table)
+library(mltools)
+
+```
+
+
+```{r}
+# First lets convert into factors
+bike_encoded = bike
+bike_encoded$weather = as.factor(bike_encoded$weather)
+dt = as.data.table(bike_encoded)
+```
+
+```{r}
+bike_encoded = as.data.frame(one_hot(dt, cols = "weather", sparsifyNAs = FALSE, naCols = FALSE, dropCols = TRUE,
+                                     dropUnusedLevels = TRUE))
+```
+
+
+```{r}
+library(dplyr)
+
+bike = bike %>%mutate_if(is.integer, as.numeric)
+
+str(bike)
+```
+
+7. Use set.seed(1) to set the random seed so I can reproduce your results
+
+```{r}
+set.seed(1)
+```
+
+8. Use Caret’s “createDataPartition” method as follows to partition the dataset into bikes_train, and bikes_test (use 90% for training and 10% for testing) 
+
+
+```{r}
+library(ggplot2)
+library(lattice)
+library(caret)
+inTrain = createDataPartition(bike$count,p =0.9, list = FALSE)
+bike_train = bike[inTrain,]
+bike_test = bike[-inTrain,]
+```
+
+9. (1pt) Set.seed(1) and further divide the bikes_train data into 90% training and 10% validation using Caret’s “CreateDataPartition” function.
+
+```{r}
+set.seed(1)
+inTrainValidation = createDataPartition(bike_train$count,p =0.9, list = FALSE)
+bike_training = bike_train[inTrainValidation,]
+bike_validation = bike_train[-inTrainValidation,]
+```
+
+10. ( 2 pt) Scale the numeric attributes in the training data (except for the outcome variable, “count”).
+Use the column means and column standard deviations from the training data to scale both the
+validation and test data (please refer to slide 81, lecture 9). Note: You should NOT scale the
+dummy variables you created in step 6.
+
+```{r}
+summary(bike_train)
+```
+
+
+```{r}
+str(bike_training)
+```
+
+```{r}
+bike_training_scaled = scale(bike_training[, !(names(bike_training) %in% "count")])
+
+col_means_train = attr(bike_training_scaled, "scaled:center")
+col_stddevs_train = attr(bike_training_scaled, "scaled:scale")
+
+bike_validation_scaled = scale(bike_validation[, !(names(bike_validation) %in% "count")], center = col_means_train, scale =col_stddevs_train)
+bike_test_scaled = scale(bike_test[, !(names(bike_test) %in% "count")], center = col_means_train, scale =col_stddevs_train)
+
+
+```
+
+```{r}
+integer_col = sapply(bike_training, is.integer)
+
+bike_training[integer_col] = lapply(bike_training[integer_col], as.numeric)
+bike_test[integer_col] = lapply(bike_test[integer_col], as.numeric)
+
+```
+
+
+11. (5 pt) Create an ANN model to predict count from other attributes. Use at least two hidden
+layers. Use tfruns to tune your model’s hyper-parameters including, the number of nodes in each
+hidden layer, the activation function in each hidden layer, batch_size, learning_rate, and the
+number of epochs). Validate each model on the validation set. Answer the following questions:
+• Print the returned value from tf_runs to see the metrics for each run. Which run ( which
+hyper-parameter combination) gave the best mean squared error on the validation data?
+• Print the learning curve for your best model. Does your best model still overfit?
+• Does your validation_loss stop decreasing after several epochs? If so, at roughly which epoch
+does your validation_loss stop decreasing?
+Note: The "fit" function in keras does not accept a dataframe and only takes a matrix. If you want to pass a
+dataframe as training or validation data to the fit function, you must first use as.matrix function to convert
+it to matrix before passing it to the fit function; for example, as.matrix(your_training_dataframe) or
+as.matrix(your_validation_dataframe)
+
+
+```{r}
+library(keras)
+library(tfruns)
+library(caret)
+```
+
+```{r}
+# First, we have to convert our data frame to matrices
+bike_training_matrix <- as.matrix(bike_training_scaled)
+bike_validation_matrix <- as.matrix(bike_validation_scaled)
+bike_test_matrix <- as.matrix(bike_test_scaled)
+```
+
+```{r}
+train_labels = bike_training$count
+val_labels = bike_validation$count
+test_labels = bike_test$count
+```
+
+```{r}
+library(ggplot2)
+library(gmodels)
+model = keras_model_sequential()
+runs = tuning_run("C:/Users/CSC/Desktop/ML/ML-Assignment 4 Prob2.R",
+                  flags = list(
+                    nodes = c(64,128,392),
+                    learning_rate = c(0.01, 0.05, 0.001, 0.001),
+                    batch_size = c(16, 32, 64, 128),
+                    activation = c("relu")
+                  ),
+                  sample = 0.03)
+```
+```{r}
+# Let's check the runs
+runs = runs[order(runs$metric_val_loss), ]
+runs
+```
+For getting the best Mean-squared error on the validation data:
+```{r}
+best_run = runs[which.min(runs$val_mean_squared_error)]
+print(paste("The run giving the best mean sqaured error for validation data is:", best_run))
+```
+
+
+```{r}
+view_run(runs$run_dir[1])
+```
+# According to the learning graph, it stops around - epochs.
+
+
+12. (5 pt) Measure the performance of your best model (after tuning) on the test set and
+compute its RMSE. Note that you must reverse the square root transformation
+by taking the square of the predictions returned by the neural network model
+and compare it to the original count value ( without square root
+transformation). Doing this, helps us get the RMSE in the original scale.
+
+```{r}
+predictions = model %>% predict(bike_test_matrix)
+squared_predictions = predictions^2
+```
+```{r}
+rmse = sqrt(mean((test_labels - squared_predictions)^ 2))
+rmse
+```
+
+13. (5 pt) Use a simple ( or step wise) linear regression model to predict the count. Train and test
+your model on the same data you used to train and test your best neural network model.
+Compare the RMSE of the linear model on the test data with the RMSE of the neural network
+model. How does your neural network model compare to a simple linear model
+
+```{r}
+# Let's train the model through Linear regression:
+
+train.control = trainControl(method = "cv", number = 10)
+
+linear_model = train(count~. , data = bike_training, method="lm",trControl = train.control)
+
+print(linear_model)
+
+```
+
+```{r}
+prediction = predict(linear_model, bike_test)
+print(prediction)
+```
+
+```{r}
+rmse_val = RMSE(prediction, test_labels)
+print(rmse_val)
+```
+# Linear Regression's RMSE val is around 4.27, whereas the ANN's rmse value is around 13.2 so as per my analysis, Linear regression is much better.

@@ -1,0 +1,278 @@
+---
+title: "ML Assignment 4- Hands on Neural Network"
+output: html_notebook
+---
+
+Problem1— Using ANN for Movie Genre Classification
+For this problem, you use the horror movies dataset you used in assignment 2 but instead of Naïve
+Bayes, you will use an ANN to classify movies into “thriller”, “no thriller” classes
+
+
+```{r}
+movies = read.csv("C:/Users/CSC/Downloads/horror_movies.csv")
+movies
+```
+
+
+
+1- First use “qdap” package to remove stop words as follows (note: replace “movies” with whatever you called your dataframe)
+
+
+```{r}
+# Assuming you have a dataframe named 'movies' containing the movie data
+
+# Concatenate title, overview, and tagline into a new feature named 'Text'
+movies$Text <- paste(movies$title, movies$overview, movies$tagline, sep = " ")
+
+# View the first few rows of the updated dataframe
+head(movies)
+
+```
+
+
+```{r}
+#install.packages("qdap")
+library(qdap)
+```
+
+```{r}
+movies$Text=rm_stopwords(movies$Text, stopwords=tm::stopwords("english"),separate=FALSE, strip=TRUE)
+```
+
+2- Randomize the order of rows, use the same seed as you did in assignment 2 so we can compare the two models on the same test dataset.
+
+```{r}
+# did randomization
+movies = movies[sample(nrow(movies)), ]
+set.seed(1)
+```
+
+
+3- Similar to assignment2, Convert thriller into a numeric variable with 0 representing none-thriller and 1 representing thriller.
+
+
+```{r}
+# Converting thriller to numeric
+movies$thriller = ifelse(grepl("Thriller", movies$genre_names, ignore.case = TRUE), 1,0)
+```
+
+
+```{r}
+# Let's check our table for thriller conversion
+table(movies$thriller)
+str(movies)
+```
+
+
+
+4- Split the data three ways in to train/validation/ and test sets. Use 65% of data for training, 15% for validation and 20% for testing. Make sure that you are using the same test set as you used in assignment 2 so you can compare the ANN model with your naïve Bayes model in assignmentt2.
+
+#Important thing to note is: We used 80% data for training and 20% for testing for our Assignment 2 using Naive bayes. Therefore to have same comparisons, we'll divide the data just the same way and later from the 80% data of training, we'll split it 65% for training and 15% for validation.
+
+```{r}
+# Let's split the data
+n = nrow(movies)
+
+train_index = sample(1:n, 0.8*n)
+
+movies_train = movies[train_index, ]
+movies_test = movies[-train_index,-22]
+test_labels = movies[-train_index,22 ]
+
+n_val = nrow(movies_train)
+
+val_index = sample(1:n_val, 0.65*n_val)
+
+movies_training = movies_train[val_index,-22 ]
+movies_validation = movies_train[-val_index, -22]
+
+train_labels = movies_train[val_index, 22 ]
+val_labels = movies_train[-val_index,22 ]
+```
+
+```{r}
+# Checking for tables
+table(train_labels)
+table(test_labels)
+table(val_labels)
+```
+
+5- Keras has a preprocessing layer, called layer_text_vectorization, this layer creates a document- term matrix where rows represent movie texts and columns represent terms. Use the following code segment to create document-term matrix for your training, validation and test datasets you created above. (Note: replace train, test, and val with the names you gave to your train, test and validation sets):
+
+```{r}
+library(keras)
+
+text_vectorizer = layer_text_vectorization(output_mode = "tf_idf", ngrams = 2, max_tokens = 5000)
+text_vectorizer %>% adapt(movies_training$Text)
+
+train_dtm =  text_vectorizer(movies_training$Text)
+val_dtm = text_vectorizer(movies_validation$Text)
+test_dtm = text_vectorizer(movies_test$Text)
+  
+```
+
+Q1. (5 pts) Create an ANN model with two hidden layers to classify movies into two classes (“Thriller” and “no-thriller”). Note: This is a binary classification problem so make sure that you are using a correct loss function as well correct number of neurons/units in the final/output layer with correct activation function.
+Once the model has completed its training, get the prediction for the test data as follows.:
+Use a cross table to compare these predicted labels to the true labels in the test data and interpret the table.
+
+```{r}
+
+train_dtm = scale(train_dtm)
+col_means_train = attr(train_dtm, "scaled:center")
+col_stddevs_train = attr(train_dtm, "scaled:scale")
+test_dtm = scale(test_dtm, center = col_means_train, scale = col_stddevs_train)
+val_dtm = scale(val_dtm, center = col_means_train, scale = col_stddevs_train)
+
+```
+
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = dim(train_dtm)[2]) %>%
+  layer_dense(units = 2, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+  
+model %>% compile(
+  loss = "binary_crossentropy", 
+  optimizer = "adam",
+  metrics = c("accuracy")
+)
+model
+```
+
+
+```{r}
+set.seed(1)
+history <- model %>% fit(
+  train_dtm, train_labels,
+  epochs = 20,
+  batch_size = 50,
+  validation_data = list(val_dtm, val_labels), verbose = 2
+)
+print(history)
+```
+
+
+```{r}
+# Let's predict our model on test_dtm
+
+predictions = model %>% predict(test_dtm)
+pred_labels = ifelse(predictions > 0.5,1,0)
+
+# Creating a cross table to compare the predicted labels to the true labels
+
+movies_table = table(pred_labels, test_labels)
+movies_table
+```
+#As per my interpretation for this, we predicted around (4698+185) labels correctly as they are supposed to be predicted and around (1310+315) are negative.
+
+Let's calculate it's accuracy
+
+```{r}
+movies_pred_accuracy = sum(diag(movies_table)) / sum(movies_table)
+print(paste("The accuracy is:", movies_pred_accuracy*100, "%"))
+```
+
+
+Q2. (5 pts) Use “tfruns” package to tune your ANN’s hyper- parameters including the number of nodes in
+each hidden layer, the batch_size, and learning_rate). Validate each model on the validation set. Answer
+the following questions:
+1- (2pt) Which model ( which hyper-parameter combination) resulted in the best accuracy
+on the validation data? Make sure that you print the returned value from tfruns and
+report the run with the highest validation accuracy. Note: the best run is not
+necessarily the first run. Print the entire table returned by tfruns to see which run
+has the highest validation accuracy and that would be your best run.
+2- (2pt) take a screenshot of the learning curves of your best model and save it. Does your best model overfit?
+3- (1pt) Does your validation_loss stop decreasing after several epochs? If so, at roughly which
+epoch does your validation_loss stop decreasing?
+
+# Let's use hyperparameter tuning for best model
+```{r}
+
+#install.packages("tfruns")
+library(tfruns)
+
+runs = tuning_run("C:/Users/CSC/Desktop/ML/ML-Assignment 4.R",
+                  flags = list(
+                    nodes = c(32,64,128,392),
+                    learning_rate = c(0.001, 0.01, 0.05, 0.1),
+                    batch_size = c(16, 32, 64, 128),
+                    activation = c("relu","sigmoid", "tanh")
+                  ),
+                  sample = 0.03)
+```
+
+```{r}
+runs = runs[order(runs$metric_val_loss), ]
+runs
+```
+#As per this run, The best metric_val_accuracy is 0.7299 having metric_val_loss as 0.6097.
+
+```{r}
+view_run(runs$run_dir[1])
+```
+#After viewing the learning curve, I can deduce that:
+# 1. Our validation accuracy and loss are respectively: 71% and 0.60.
+# 2. Our batch_size and nodes should be 64
+# 3.Activation layer and loss is sigmoid and cross_entropy respectively.
+# 4. The learning rate is 0.05
+
+# The total number of epochs used for training is 6 as per the learning graph. Also, I believe that it's an overfitting graph.
+
+Q3. (5 pts)Now that we tuned the hyperparameters and selected the best model, we don’t need to
+withhold validation data anymore and can use it for training. Add the validation data to the train data.
+You can do this by first, converting your train_dtm and val_dtm into matrices and then combining
+them using “rbind”. Make sure that you also combine the train and validation labels . Now re-train
+your best model on this new training data and evaluate it on the test data. Compute precision and
+recall for the Thriller movies. How does this model perform compare to your naïve
+Bayes model in assignment 2
+
+```{r}
+train_dtm = as.matrix(train_dtm)
+val_dtm = as.matrix(val_dtm)
+
+combined_dtm = rbind(train_dtm, val_dtm)
+
+combined_labels = c(train_labels, val_labels)
+```
+
+```{r}
+# Retraining the data:
+
+model <- keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu", input_shape = dim(combined_dtm)[2]) %>%
+  layer_dense(units = 16, activation = "sigmoid")
+  layer_dense(units = 1, activation = "sigmoid")
+  
+model %>% compile(
+  loss = "binary_crossentropy", 
+  optimizer = "adam",
+  metrics = c("accuracy")
+)
+model
+```
+
+```{r}
+set.seed(1)
+history <- model %>% fit(
+  combined_dtm, combined_labels,
+  epochs = 20,
+  batch_size = 64,
+  validation_data = list(test_dtm, test_labels)
+)
+print(history)
+```
+
+
+```{r}
+prediction = model %>% predict(test_dtm)
+pred_labels = ifelse(prediction > 0.5,1,0)
+
+# Creating a cross table to compare the predicted labels to the true labels
+
+movies_table = table(pred_labels, test_labels)
+movies_table
+```
+
+The precision for Naive Bayes was approx 0.3
+And the recall was approx 0.55
